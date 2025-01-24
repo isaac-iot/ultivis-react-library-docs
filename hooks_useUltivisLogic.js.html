@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>JSDoc: Source: hooks/useUltivisLogic.js</title>
+
+    <script src="scripts/prettify/prettify.js"> </script>
+    <script src="scripts/prettify/lang-css.js"> </script>
+    <!--[if lt IE 9]>
+      <script src="//html5shiv.googlecode.com/svn/trunk/html5.js"></script>
+    <![endif]-->
+    <link type="text/css" rel="stylesheet" href="styles/prettify-tomorrow.css">
+    <link type="text/css" rel="stylesheet" href="styles/jsdoc-default.css">
+</head>
+
+<body>
+
+<div id="main">
+
+    <h1 class="page-title">Source: hooks/useUltivisLogic.js</h1>
+
+    
+
+
+
+    
+    <section>
+        <article>
+            <pre class="prettyprint source linenums"><code>import { get, set, has } from 'lodash-es';
+import { useUltivisDeviceContext } from './useUltivisDevice';
+
+/**
+ * Custom hook that provides Ultivis device logic for processing data related to devices and parents.
+ *
+ * This hook includes methods for processing device data, event and alarm logic, and managing properties
+ * in a structure that's specific to Ultivis devices and parents.
+ *
+ * @hook
+ * @returns {Object} - Methods for managing and processing Ultivis devices, events, and properties.
+ *
+ * @method measurementLogic
+ * @description Maps supported measurement data based on a given `u5sOrigin` (the source of the measurement).
+ * @param {Array&lt;Object>} supportedMeasurementList - List of supported measurements.
+ * @param {string} u5sOrigin - The origin of the data (e.g., 'parent' or device ID).
+ * @returns {Array&lt;Object>} - Processed measurement data.
+ *
+ * @method eventAlarmLogic
+ * @description Maps event and alarm data based on a given `u5sOrigin`.
+ * @param {Array&lt;Object>} typeList - List of event or alarm data.
+ * @param {string} u5sOrigin - The origin of the data.
+ * @returns {Array&lt;Object>} - Processed event or alarm data.
+ *
+ * @method customFragmentLogic
+ * @description Generates a custom fragment for a specific `u5sOrigin`.
+ * @param {string} fragmentType - The type of fragment (e.g., 'datapoints', 'alarms').
+ * @param {string} fragment - The fragment value.
+ * @param {string} u5sOrigin - The origin of the data.
+ * @returns {Object} - Object containing the fragment type and its processed value.
+ *
+ * @method u5sOriginLogic
+ * @description Determines the origin, target, and context of a managed object based on whether it's a device or parent.
+ * @param {Object} managedObject - The managed object to analyze.
+ * @returns {Object} - Object containing `target`, `u5sOrigin`, and `origin`.
+ *
+ * @method u5sTargetLogic
+ * @description Modifies a property to include the correct target information based on the `u5sOrigin`.
+ * @param {Object} originalProperty - The original property object to modify.
+ * @param {Object} context - The context that determines the target.
+ * @returns {Object} - Modified property with the correct target information.
+ *
+ * @method u5sPropertyLogic
+ * @description Modifies a property path for a specific target based on `u5sOrigin`.
+ * @param {Object} originalProperty - The original property object.
+ * @param {Object} context - The context used to determine the target path.
+ * @param {string} targetPath - The path to modify in the property.
+ * @returns {Object} - Modified property with the correct target path.
+ *
+ * @method getParsedPropertyList
+ * @description Processes a list of properties and extracts the relevant data based on the `dataType`.
+ * @param {Array&lt;Object>} propertyList - The list of properties to process.
+ * @param {string} dataType - The type of data (e.g., 'datapoints', 'events').
+ * @returns {Array&lt;Object>} - Processed property list.
+ *
+ * @method deviceTypeDashboardForData
+ * @description Modifies data for dashboards that are based on device types.
+ * @param {Array&lt;Object>} dataList - The data list to modify.
+ * @param {Object} context - The context for the device type.
+ * @returns {Array&lt;Object>} - Modified data list for the device type dashboard.
+ *
+ * @method deviceTypeDashboardForProperty
+ * @description Modifies properties for dashboards that are based on device types.
+ * @param {Array&lt;Object>} propertyList - The list of properties to modify.
+ * @param {Object} context - The context for the device type.
+ * @param {string} [path='targetPath'] - The path to modify in the properties.
+ * @returns {Array&lt;Object>} - Modified property list for the device type dashboard.
+ *
+ * @example
+ * const {
+ *   measurementLogic,
+ *   eventAlarmLogic,
+ *   deviceTypeDashboardForData,
+ *   deviceTypeDashboardForProperty,
+ * } = useUltivisLogic();
+ */
+export const useUltivisLogic = () => {
+  const { getDeviceById } = useUltivisDeviceContext();
+
+  const ultivisLogic = (key, dataList, u5sOrigin) => {
+    switch (u5sOrigin) {
+      case null:
+        return dataList.map((item) => {
+          return { ...item, original: item[key] };
+        });
+      case 'parent':
+        // |을 갖는 데이터포인트 제외
+        return dataList.reduce((acc, item) => {
+          if (!item[key].includes('|'))
+            acc.push({ ...item, original: item[key] });
+          return acc;
+        }, []);
+      default:
+        // |로 파싱하여, 앞부분이 자신과 동일한 데이터 가져오기
+        return dataList.reduce((acc, item) => {
+          const [source, originalKey] = item[key].split('|');
+          if (source === u5sOrigin)
+            acc.push({ ...item, original: originalKey });
+          return acc;
+        }, []);
+    }
+  };
+
+  const methods = {
+    dataTypeProperty: {
+      datapoints: 'fragment',
+      events: 'type',
+      alarms: 'type',
+    },
+    measurementLogic: (supportedMeasurementList, u5sOrigin) =>
+      ultivisLogic('fragment', supportedMeasurementList, u5sOrigin),
+    eventAlarmLogic: (typeList, u5sOrigin) =>
+      ultivisLogic('type', typeList, u5sOrigin),
+    customFragmentLogic: (fragmentType, fragment, u5sOrigin) => {
+      switch (u5sOrigin) {
+        case null:
+        case 'parent':
+          return { [fragmentType]: fragment, original: fragment };
+        default:
+          return {
+            [fragmentType]: `${u5sOrigin}|${fragment}`,
+            original: fragment,
+          };
+      }
+    },
+
+    u5sOriginLogic: (managedObject) => {
+      if (!managedObject) return;
+      const { id, name, u5s_IsParent, u5s_IsDevice } = managedObject;
+
+      const origin = { id, name };
+      let target, u5sOrigin;
+
+      if (u5s_IsDevice) {
+        const parent =
+          getDeviceById(id).deviceParents.references[0].managedObject;
+        target = { id: parent.id, name: parent.name };
+        u5sOrigin = id;
+      } else {
+        target = { id, name };
+        u5sOrigin = u5s_IsParent ? 'parent' : null;
+      }
+
+      return { target, u5sOrigin, origin };
+    },
+    u5sTargetLogic: (originalProperty, context) => {
+      const { target, origin } = methods.u5sOriginLogic(context);
+
+      let newProperty = { ...originalProperty };
+      set(newProperty, '__target', target);
+
+      if (has(newProperty, 'fragment') &amp;&amp; has(newProperty, 'series')) {
+        set(
+          newProperty,
+          'fragment',
+          `${origin.id}|${originalProperty.__original.fragment}`
+        );
+      } else {
+        set(
+          newProperty,
+          'type',
+          `${origin.id}|${originalProperty.__original.type}`
+        );
+      }
+      return newProperty;
+    },
+
+    u5sPropertyLogic: (originalProperty, context, targetPath) => {
+      const { target, origin } = methods.u5sOriginLogic(context);
+
+      let newProperty = { ...originalProperty };
+      let [_, dataProperty, targetFragment] = get(
+        newProperty,
+        targetPath
+      ).split('.');
+      let newTargetPath = `${origin.id}.${dataProperty}.${targetFragment}`;
+
+      if (newProperty.computed === true &amp;&amp; targetFragment.includes('|')) {
+        const [_, fragment] = targetFragment.split('|');
+        newTargetPath = `${target.id}.${dataProperty}.${target.id}|${fragment}`;
+      }
+
+      set(newProperty, targetPath, newTargetPath);
+      return newProperty;
+    },
+
+    getParsedPropertyList: (propertyList, dataType) => {
+      return propertyList.map((property) => {
+        const targetProperty = methods.dataTypeProperty[dataType];
+        return {
+          ...property,
+          [targetProperty]: property[targetProperty].includes('|')
+            ? property[targetProperty].split('|')[1]
+            : property[targetProperty],
+        };
+      });
+    },
+
+    // 디바이스 타입으로 생성된 대시보드의 데이터포인트 가져오기
+    deviceTypeDashboardForData: (dataList, context) => {
+      if (has(context, 'c8y_IsDevice')) {
+        return dataList?.map((data) => {
+          data.__target = {
+            name: context.name,
+            id: context.id,
+          };
+          return data;
+        });
+      } else if (has(context, 'u5s_IsParent') || has(context, 'u5s_IsDevice')) {
+        return dataList?.map((data) => methods.u5sTargetLogic(data, context));
+      } else {
+        return dataList;
+      }
+    },
+
+    // propertyList (assetProperty, assetTable, svg)
+    // NOTE : 수정 필요
+    deviceTypeDashboardForProperty: (
+      propertyList,
+      context,
+      path = 'targetPath'
+    ) => {
+      if (
+        has(context, 'c8y_IsDevice') ||
+        has(context, 'u5s_IsParent') ||
+        has(context, 'u5s_IsDevice')
+      ) {
+        return propertyList?.map((property) =>
+          methods.u5sPropertyLogic(property, context, path)
+        );
+      } else {
+        return propertyList;
+      }
+    },
+  };
+
+  return methods;
+};
+</code></pre>
+        </article>
+    </section>
+
+
+
+
+</div>
+
+<nav>
+    <h2><a href="index.html">Home</a></h2><h3>Global</h3><ul><li><a href="global.html#ActionBar">ActionBar</a></li><li><a href="global.html#ActionItem">ActionItem</a></li><li><a href="global.html#AddData">AddData</a></li><li><a href="global.html#AggregationPicker">AggregationPicker</a></li><li><a href="global.html#AppItem">AppItem</a></li><li><a href="global.html#AppProviders">AppProviders</a></li><li><a href="global.html#AppSwitcher">AppSwitcher</a></li><li><a href="global.html#AppSwitcherItem">AppSwitcherItem</a></li><li><a href="global.html#AuthProvider">AuthProvider</a></li><li><a href="global.html#ComputedPropertyConfig">ComputedPropertyConfig</a></li><li><a href="global.html#ConetextDashboardActionItems">ConetextDashboardActionItems</a></li><li><a href="global.html#Configuration">Configuration</a></li><li><a href="global.html#ContextDashboard">ContextDashboard</a></li><li><a href="global.html#ContextGrid">ContextGrid</a></li><li><a href="global.html#ContextWidgetActionItems">ContextWidgetActionItems</a></li><li><a href="global.html#ContextWidgetWrapper">ContextWidgetWrapper</a></li><li><a href="global.html#DarkProvider">DarkProvider</a></li><li><a href="global.html#DashboardModal">DashboardModal</a></li><li><a href="global.html#DataDetail">DataDetail</a></li><li><a href="global.html#DataItem">DataItem</a></li><li><a href="global.html#DataList">DataList</a></li><li><a href="global.html#DataManager">DataManager</a></li><li><a href="global.html#DataMenu">DataMenu</a></li><li><a href="global.html#DatePicker">DatePicker</a></li><li><a href="global.html#DeviceTree">DeviceTree</a></li><li><a href="global.html#DialogContent">DialogContent</a></li><li><a href="global.html#DynamicWidget">DynamicWidget</a></li><li><a href="global.html#EmptyState">EmptyState</a></li><li><a href="global.html#FallbackUi">FallbackUi</a></li><li><a href="global.html#ForgotPassword">ForgotPassword</a></li><li><a href="global.html#FormCheckboxField">FormCheckboxField</a></li><li><a href="global.html#FormColorField">FormColorField</a></li><li><a href="global.html#FormInputArrayField">FormInputArrayField</a></li><li><a href="global.html#FormInputField">FormInputField</a></li><li><a href="global.html#FormRadioField">FormRadioField</a></li><li><a href="global.html#FormSelectField">FormSelectField</a></li><li><a href="global.html#GeneralSection">GeneralSection</a></li><li><a href="global.html#GroupAccordion">GroupAccordion</a></li><li><a href="global.html#Header">Header</a></li><li><a href="global.html#HeaderDivider">HeaderDivider</a></li><li><a href="global.html#HeaderStyleEnum">HeaderStyleEnum</a></li><li><a href="global.html#LastUpdated">LastUpdated</a></li><li><a href="global.html#Layout">Layout</a></li><li><a href="global.html#LayoutSection">LayoutSection</a></li><li><a href="global.html#LazyLoader">LazyLoader</a></li><li><a href="global.html#LinkTab">LinkTab</a></li><li><a href="global.html#Loader">Loader</a></li><li><a href="global.html#Loading">Loading</a></li><li><a href="global.html#LoadingDots">LoadingDots</a></li><li><a href="global.html#LoadingSpinner">LoadingSpinner</a></li><li><a href="global.html#Login">Login</a></li><li><a href="global.html#LoginForm">LoginForm</a></li><li><a href="global.html#MenuBar">MenuBar</a></li><li><a href="global.html#NotFound">NotFound</a></li><li><a href="global.html#PreviewSection">PreviewSection</a></li><li><a href="global.html#PreviewWidget">PreviewWidget</a></li><li><a href="global.html#PropertySelectTable">PropertySelectTable</a></li><li><a href="global.html#PropertySelector">PropertySelector</a></li><li><a href="global.html#PropertyTable">PropertyTable</a></li><li><a href="global.html#QuestionTooltip">QuestionTooltip</a></li><li><a href="global.html#RemoveModal">RemoveModal</a></li><li><a href="global.html#RenderEmptyStateMessage">RenderEmptyStateMessage</a></li><li><a href="global.html#SearchDeviceTree">SearchDeviceTree</a></li><li><a href="global.html#SelectWidget">SelectWidget</a></li><li><a href="global.html#Sidebar">Sidebar</a></li><li><a href="global.html#SidebarAccordionItem">SidebarAccordionItem</a></li><li><a href="global.html#SidebarItem">SidebarItem</a></li><li><a href="global.html#StaticDashboard">StaticDashboard</a></li><li><a href="global.html#StaticWidgetWrapper">StaticWidgetWrapper</a></li><li><a href="global.html#TabItem">TabItem</a></li><li><a href="global.html#Tabs">Tabs</a></li><li><a href="global.html#Toaster">Toaster</a></li><li><a href="global.html#TreeItem">TreeItem</a></li><li><a href="global.html#TreeParent">TreeParent</a></li><li><a href="global.html#UltivisDeviceProvider">UltivisDeviceProvider</a></li><li><a href="global.html#UserMenu">UserMenu</a></li><li><a href="global.html#UserMenuItem">UserMenuItem</a></li><li><a href="global.html#WidgetDatePicker">WidgetDatePicker</a></li><li><a href="global.html#WidgetModal">WidgetModal</a></li><li><a href="global.html#addLanguagePack">addLanguagePack</a></li><li><a href="global.html#alarmPeriod">alarmPeriod</a></li><li><a href="global.html#alarmSeverityIcon">alarmSeverityIcon</a></li><li><a href="global.html#alarmStatusIcon">alarmStatusIcon</a></li><li><a href="global.html#baseSchema">baseSchema</a></li><li><a href="global.html#chartDisplayOptions">chartDisplayOptions</a></li><li><a href="global.html#chartTypeOptions">chartTypeOptions</a></li><li><a href="global.html#checkRole">checkRole</a></li><li><a href="global.html#cn">cn</a></li><li><a href="global.html#createOperation">createOperation</a></li><li><a href="global.html#customPeriod">customPeriod</a></li><li><a href="global.html#dataMinMaxRequireSchema">dataMinMaxRequireSchema</a></li><li><a href="global.html#dataRequireSchema">dataRequireSchema</a></li><li><a href="global.html#dataSchema">dataSchema</a></li><li><a href="global.html#deviceSchema">deviceSchema</a></li><li><a href="global.html#deviceTypeDashboardForDevice">deviceTypeDashboardForDevice</a></li><li><a href="global.html#deviceTypeDashboardForProperty">deviceTypeDashboardForProperty</a></li><li><a href="global.html#encodeAuth">encodeAuth</a></li><li><a href="global.html#fontSchema">fontSchema</a></li><li><a href="global.html#fontWeightSchema">fontWeightSchema</a></li><li><a href="global.html#fontWeights">fontWeights</a></li><li><a href="global.html#fonts">fonts</a></li><li><a href="global.html#getActiveData">getActiveData</a></li><li><a href="global.html#getAlarms">getAlarms</a></li><li><a href="global.html#getAllInventory">getAllInventory</a></li><li><a href="global.html#getApiMap">getApiMap</a></li><li><a href="global.html#getBinary">getBinary</a></li><li><a href="global.html#getChildAssetsList">getChildAssetsList</a></li><li><a href="global.html#getChildDevicesList">getChildDevicesList</a></li><li><a href="global.html#getComputedType">getComputedType</a></li><li><a href="global.html#getCurrentUser">getCurrentUser</a></li><li><a href="global.html#getDashboards">getDashboards</a></li><li><a href="global.html#getDataPoints">getDataPoints</a></li><li><a href="global.html#getDatapointsFromLocal">getDatapointsFromLocal</a></li><li><a href="global.html#getEvents">getEvents</a></li><li><a href="global.html#getEventsByDate">getEventsByDate</a></li><li><a href="global.html#getEventsByFragment">getEventsByFragment</a></li><li><a href="global.html#getEventsByType">getEventsByType</a></li><li><a href="global.html#getExternalId">getExternalId</a></li><li><a href="global.html#getInventory">getInventory</a></li><li><a href="global.html#getInventoryByFragmentType">getInventoryByFragmentType</a></li><li><a href="global.html#getInventoryByText">getInventoryByText</a></li><li><a href="global.html#getLoginOptions">getLoginOptions</a></li><li><a href="global.html#getMeasurements">getMeasurements</a></li><li><a href="global.html#getMeasurementsByDate">getMeasurementsByDate</a></li><li><a href="global.html#getMeasurementsByFragment">getMeasurementsByFragment</a></li><li><a href="global.html#getMeasurementsBySeries">getMeasurementsBySeries</a></li><li><a href="global.html#getSchema">getSchema</a></li><li><a href="global.html#getSupported">getSupported</a></li><li><a href="global.html#getTargetPath">getTargetPath</a></li><li><a href="global.html#getTypesFromLocal">getTypesFromLocal</a></li><li><a href="global.html#hasAccessedDashboardIdid">hasAccessedDashboardId</a></li><li><a href="global.html#homeDeviceInventory">homeDeviceInventory</a></li><li><a href="global.html#homeGroupInventory">homeGroupInventory</a></li><li><a href="global.html#humanizeAppName">humanizeAppName</a></li><li><a href="global.html#initializeState">initializeState</a></li><li><a href="global.html#intervalSchema">intervalSchema</a></li><li><a href="global.html#intervals">intervals</a></li><li><a href="global.html#isParentAssignedGroup">isParentAssignedGroup</a></li><li><a href="global.html#isSameDatapoint">isSameDatapoint</a></li><li><a href="global.html#isSameId">isSameId</a></li><li><a href="global.html#isSameType">isSameType</a></li><li><a href="global.html#list">list</a></li><li><a href="global.html#load">load</a></li><li><a href="global.html#manageRole">manageRole</a></li><li><a href="global.html#period">period</a></li><li><a href="global.html#periodSchema">periodSchema</a></li><li><a href="global.html#postChildInventory">postChildInventory</a></li><li><a href="global.html#postEvents">postEvents</a></li><li><a href="global.html#postInventory">postInventory</a></li><li><a href="global.html#propertySchema">propertySchema</a></li><li><a href="global.html#putAlarm">putAlarm</a></li><li><a href="global.html#putDataPoints">putDataPoints</a></li><li><a href="global.html#putInventory">putInventory</a></li><li><a href="global.html#realtimeSub">realtimeSub</a></li><li><a href="global.html#realtimeUnSub">realtimeUnSub</a></li><li><a href="global.html#register">register</a></li><li><a href="global.html#registerList">registerList</a></li><li><a href="global.html#removeInventory">removeInventory</a></li><li><a href="global.html#resetQueryDeleteInvalidated">resetQueryDeleteInvalidated</a></li><li><a href="global.html#resetQueryInvalidated">resetQueryInvalidated</a></li><li><a href="global.html#setBasicAuth">setBasicAuth</a></li><li><a href="global.html#setDatapointsToLocal">setDatapointsToLocal</a></li><li><a href="global.html#setIsDevice">setIsDevice</a></li><li><a href="global.html#setIsFullScreen">setIsFullScreen</a></li><li><a href="global.html#setTypesToLocal">setTypesToLocal</a></li><li><a href="global.html#textSchema">textSchema</a></li><li><a href="global.html#useApi">useApi</a></li><li><a href="global.html#useCustomMutation">useCustomMutation</a></li><li><a href="global.html#useDashboard">useDashboard</a></li><li><a href="global.html#useDashboardActions">useDashboardActions</a></li><li><a href="global.html#useDataManager">useDataManager</a></li><li><a href="global.html#useDatapointActions">useDatapointActions</a></li><li><a href="global.html#useDatePickerStore">useDatePickerStore</a></li><li><a href="global.html#useDeviceInventory">useDeviceInventory</a></li><li><a href="global.html#useDeviceTree">useDeviceTree</a></li><li><a href="global.html#useIntersectionObserver">useIntersectionObserver</a></li><li><a href="global.html#useInventoryContext">useInventoryContext</a></li><li><a href="global.html#useRoutingContext">useRoutingContext</a></li><li><a href="global.html#useSidebarStore">useSidebarStore</a></li><li><a href="global.html#useUpdateForTypeDashboard">useUpdateForTypeDashboard</a></li><li><a href="global.html#useUpdatedConfig">useUpdatedConfig</a></li><li><a href="global.html#useWidgetActions">useWidgetActions</a></li><li><a href="global.html#useWidgetSize">useWidgetSize</a></li><li><a href="global.html#yAxisPositionOptions">yAxisPositionOptions</a></li></ul>
+</nav>
+
+<br class="clear">
+
+<footer>
+    Documentation generated by <a href="https://github.com/jsdoc/jsdoc">JSDoc 4.0.4</a> on Fri Jan 24 2025 09:32:54 GMT+0900 (대한민국 표준시)
+</footer>
+
+<script> prettyPrint(); </script>
+<script src="scripts/linenumber.js"> </script>
+</body>
+</html>
